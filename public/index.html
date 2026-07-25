@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <title>Le vent à Château-Paille</title>
+    <link rel="stylesheet" href='style.css'>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+</head>
+<body>
+<div class="radio-container">
+    <input type="radio" id="Paille" name="station" value="97232003" checked>
+    <label for="Paille" class="radio-label">Château-Paille</label>
+
+    <input type="radio" id="Caravelle" name="station" value="97230001">
+    <label for="Caravelle" class="radio-label">La Caravelle</label>
+
+    <input type="radio" id="Robert" name="station" value="97222002">
+    <label for="Robert" class="radio-label">Le Robert</label>
+</div>
+<div class="corps">
+    <img id="compas" src="Compas.png">
+    <div class="bandeau" id="bandeau-alert">
+        Dernières données manquantes
+    </div>
+    <h1>Le vent à Château-Paille, </h1>
+    <h2>le Vauclin, aujourd'hui, </h2>
+
+    <div class="info">Informations importantes en bas de page.
+        <label class="arrondir">
+            <input type="checkbox" id="toggleArrondi"> <b>Arrondir !</b>
+        </label>
+        <br>Veuillez contrôler ces données sur <a href="https://meteofrance.mq/fr/observations">https://meteofrance.mq/fr/observations</a></div>
+    <table>
+        <thead>
+        <tr>
+            <th style="width: 31%;">Horaire décroissant</th>
+            <th style="width: 26%;">Direction</th>
+            <th style="width: 43%;" id="vitesse-header">Vitesse<br>à ± 0.18 km/h</th>
+        </tr>
+        </thead>
+        <tbody id="data-table">
+        <!-- Les lignes seront ajoutées ici dynamiquement -->
+        </tbody>
+    </table>
+
+</div>
+
+<div class="bas-de-page">
+    <h3>Conseils d'utilisation</h3>
+    <b>Clause de non-responsabilité</b> <br>
+    Les données météorologiques présentées sur cette page proviennent de Météo-France et sont fournies à titre informatif. Malgré tous nos efforts pour garantir l'exactitude des informations, celles-ci peuvent contenir des erreurs ou être sujettes à des modifications sans préavis. L'utilisateur est seul responsable de l'interprétation des données et de leurs conséquences. En aucun cas, l'auteur de la page ne pourra être tenu responsable d'un quelconque dommage direct ou indirect lié à l'utilisation de ces informations.
+    <br><br><b>Limites des données</b> <br>
+    Les vitesses du vent affichées sur cette page sont basées sur les données mises à disposition par Météo-France. Ces données peuvent être anciennes ou ne pas refléter exactement les conditions locales d’autant que les sites de vols ou de kite sont souvent distants du Vauclin. Il est recommandé de toujours vérifier les conditions météorologiques auprès de sources officielles avant de pratiquer une activité comme le parapente ou le kite-surf.<br>Par exemple : <a href="https://meteofrance.mq/fr/observations">https://meteofrance.mq/fr/observations</a>
+    <br><br><b>Recommandations générales</b> <br>
+    Avant toute sortie en parapente, il est essentiel de vérifier les conditions météorologiques auprès de sources fiables, d'évaluer les risques en fonction de votre niveau d'expérience, et de respecter les consignes de sécurité spécifiques à chaque site de vol. En cas de doutes, abstenez-vous !
+    <br><br><b>Mention de la source</b> <br>
+    Les données météorologiques affichées sur cette page sont fournies par Météo-France via une API. Leur reproduction ou redistribution est interdite sans l'autorisation préalable de Météo-France. Ces données non pas été modifiées : les vitesses du vent, à l’origine en m/s (par exemple : 5,1 m/s) sont simplement converties en km/h (par exemple : 18,36 km/h, valeur éventuellement arrondie au km/h le plus proche si vous le choisissez). Les directions sont indiquées en degrés dans la notation classique de la navigation aérienne ou maritime (voir rose des vents ci-dessus : 000°-Nord, 090°-Est, etc.)<br>
+    <br>Ce site n'est pas à but lucratif et ne recueille pas de données personnelles.
+    <br><div class="signature">Photos, images et réalisation par JJS © 2025. Contact : jjs972@proton.me</div>
+</div>
+<script type="module" src="vent.js"></script>
+</body>
+</html>

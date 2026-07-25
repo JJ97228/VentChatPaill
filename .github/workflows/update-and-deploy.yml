@@ -1,0 +1,63 @@
+name: Mise à jour données vent + déploiement Pages
+
+# Ce workflow tourne UNIQUEMENT dans ce repo de test.
+# Il n'a aucune interaction avec le site Heroku de production.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # toutes les 30 min, aligné sur la granularité déjà utilisée par l'appli
+  workflow_dispatch: {}       # bouton "Run workflow" manuel pour tester sans attendre le cron
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Installer les dépendances
+        run: npm install
+
+      - name: Récupérer les données Météo-France
+        run: node build.js
+        env:
+          APPLICATION_ID: ${{ secrets.APPLICATION_ID }}
+          TOKEN_URL: ${{ secrets.TOKEN_URL }}
+
+      - name: Commit des JSON mis à jour (si changement)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data public/data
+          git diff --cached --quiet || git commit -m "Mise à jour automatique des données vent"
+          git push
+
+      - name: Préparer l'artefact Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy-pages:
+    needs: update-data
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Déployer sur GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

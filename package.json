@@ -1,0 +1,16 @@
+{
+  "name": "vent-vauclin-static-test",
+  "version": "1.0.0",
+  "description": "Version test statique (GitHub Pages + Actions) de l'application vent, en parallèle du site Heroku de production",
+  "private": true,
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "axios": "^1.4.0",
+    "dotenv": "^16.4.7"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}
