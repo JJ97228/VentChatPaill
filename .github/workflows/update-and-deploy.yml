@@ -5,7 +5,7 @@ name: Mise à jour données vent + déploiement Pages
 
 on:
   schedule:
-    - cron: '5,35 * * * *'   # 5 min après chaque demi-heure : laisse à Météo-France le temps de publier
+    - cron: '7,37 * * * *'   # 7 min après chaque demi-heure : laisse à Météo-France le temps de publier
   workflow_dispatch: {}       # bouton "Run workflow" manuel pour tester sans attendre le cron
 
 permissions:

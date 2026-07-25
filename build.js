@@ -21,9 +21,13 @@ const DATA_FILES_OUTPUT = {
 };
 
 // Marge de sécurité : on ne demande jamais un créneau plus récent que
-// "maintenant - BUFFER_MIN". Météo-France a un délai de publication ;
-// interroger un créneau trop récent échoue quasi systématiquement.
-const BUFFER_MIN = 10;
+// "maintenant - BUFFER_MIN". Doit rester INFÉRIEUR au décalage du cron
+// (7 min) : sinon le créneau qui vient de tomber n'est jamais éligible
+// au run qui suit immédiatement et prend un cycle complet (30 min) de
+// retard à chaque fois (bug identifié le 25/07). Le rattrapage des
+// créneaux manquants (voir plus bas) absorbe sans problème les cas où
+// Météo-France n'a réellement pas encore publié à ce moment-là.
+const BUFFER_MIN = 3;
 
 function parseToGMT(dateStr) {
     const [day, month, year, hour, minute, second] = dateStr.match(/\d+/g);
