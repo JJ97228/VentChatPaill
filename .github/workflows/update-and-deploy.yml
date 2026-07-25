@@ -15,7 +15,10 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  # true (et non false) : si un run reste bloqué (ex. déploiement Pages en
+  # attente), le déclenchement suivant le tue plutôt que de rester en file
+  # d'attente indéfiniment derrière lui — ce qui gelait tout le cron.
+  cancel-in-progress: true
 
 jobs:
   update-data:
