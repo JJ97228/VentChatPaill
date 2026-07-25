@@ -43,8 +43,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data public/data
-          git diff --cached --quiet || git commit -m "Mise à jour automatique des données vent"
-          git push
+          if git diff --cached --quiet; then
+            echo "Rien à committer."
+            exit 0
+          fi
+          git commit -m "Mise à jour automatique des données vent"
+          for i in 1 2 3 4 5; do
+            if git push; then
+              echo "Push réussi."
+              exit 0
+            fi
+            echo "Push rejeté (tentative $i/5) : un autre commit est arrivé entre-temps sur main. Rebase et nouvel essai..."
+            git pull --rebase origin main
+            sleep 3
+          done
+          echo "Echec du push après 5 tentatives."
+          exit 1
 
       - name: Préparer l'artefact Pages
         uses: actions/upload-pages-artifact@v3
