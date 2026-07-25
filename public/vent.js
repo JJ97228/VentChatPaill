@@ -46,15 +46,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         return dateGMT4;
     }
 
-    // Seuil identique à celui du serveur d'origine (37 minutes)
+    // Tri chronologique défensif : build.js trie déjà les clés avant sauvegarde,
+    // mais on ne fait pas confiance à l'ordre d'insertion du JSON pour déterminer
+    // "la donnée la plus récente" (un trou comblé après coup casserait sinon
+    // l'ordre naturel de Object.keys()).
+    function getSortedKeys(dico) {
+        return Object.keys(dico).sort((a, b) => {
+            try {
+                return parseToGMT(a) - parseToGMT(b);
+            } catch (e) {
+                return 0;
+            }
+        });
+    }
+
+    // Seuil relevé par rapport à l'original (37 min) : le pipeline statique
+    // (cron 30 min + marge de publication Météo-France + délai commit/déploiement
+    // Pages) ajoute un délai que l'ancien serveur en direct n'avait pas.
+    const SEUIL_MANQUE_MIN = 50;
+
     function computeManque(dico) {
-        const keys = Object.keys(dico);
+        const keys = getSortedKeys(dico);
         if (keys.length === 0) return true;
         const lastKey = keys[keys.length - 1];
         try {
             const lastDate = parseToGMT(lastKey);
             const maintenant = new Date();
-            return ((maintenant - lastDate) / 60000) > 37;
+            return ((maintenant - lastDate) / 60000) > SEUIL_MANQUE_MIN;
         } catch (e) {
             return true;
         }
@@ -112,14 +130,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const bandeauAlert = document.getElementById('bandeau-alert');
         bandeauAlert.style.display = manque ? 'block' : 'none'
 
-        const keysAll = Object.keys(dico);
+        const keysAll = getSortedKeys(dico);
         if (keysAll.length === 0) {
             // Rien à afficher (première génération avant le premier passage du workflow)
             document.getElementById('data-table').innerHTML = '';
             return;
         }
 
-        const lastKey = keysAll.pop();
+        const lastKey = keysAll[keysAll.length - 1];
         const lastDate = new Date(lastKey.replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$2/$1/$3'));
 
         const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
@@ -165,7 +183,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     `;
         document.head.appendChild(style);
 
-        const keys = Object.keys(dico);
+        const keys = keysAll; // déjà trié chronologiquement (getSortedKeys)
         for (let i = keys.length - 1; i >= 0; i--) {
             const key = keys[i];
             const values = dico[key];

@@ -20,11 +20,14 @@ const DATA_FILES_OUTPUT = {
     '97222002': path.join(__dirname, 'public/data/dico3.json'),
 };
 
+// Marge de sécurité : on ne demande jamais un créneau plus récent que
+// "maintenant - BUFFER_MIN". Météo-France a un délai de publication ;
+// interroger un créneau trop récent échoue quasi systématiquement.
+const BUFFER_MIN = 10;
+
 function parseToGMT(dateStr) {
     const [day, month, year, hour, minute, second] = dateStr.match(/\d+/g);
-    // Crée une date en GMT-4 (sans décalage initial)
     const dateGMT4 = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-    // Corrige pour avoir l'heure en GMT
     dateGMT4.setUTCHours(dateGMT4.getUTCHours() + 4);
     return dateGMT4;
 }
@@ -41,14 +44,23 @@ function formatToGMTMinus4(date) {
     }).format(date);
 }
 
-function noexisteouVide(maintenant) {
+// Liste tous les créneaux de 30 min attendus depuis le début de la "journée
+// d'observation" (4h00 heure locale) jusqu'à maintenant - BUFFER_MIN.
+function getCreneauxAttendus(maintenant) {
     let huizero = new Date(maintenant);
     huizero.setHours(4, 0, 0, 0);
     if (huizero > maintenant) {
-        huizero = new Date(huizero - (24 * 3600 * 1000));
+        huizero = new Date(huizero.getTime() - 24 * 3600 * 1000);
     }
-    let dateDebut = new Date(huizero);
-    return dateDebut;
+
+    const limite = new Date(maintenant.getTime() - BUFFER_MIN * 60 * 1000);
+    const creneaux = [];
+    let cursor = new Date(huizero);
+    while (cursor <= limite) {
+        creneaux.push(new Date(cursor));
+        cursor = new Date(cursor.getTime() + 30 * 60 * 1000);
+    }
+    return creneaux;
 }
 
 class Client {
@@ -97,138 +109,88 @@ class Client {
     }
 }
 
-async function initDico(stationId) {
+async function updateStationData(stationId) {
     const maintenant = new Date();
-    let dico = {};
-    let fini = false;
-    let BOUCLE = 0;
-    let dateDebut;
-
-    if (!DATA_FILES_SOURCE[stationId]) {
+    const DATA_FILE_SOURCE = DATA_FILES_SOURCE[stationId];
+    if (!DATA_FILE_SOURCE) {
         throw new Error(`Station ID inconnu : ${stationId}`);
     }
-    const DATA_FILE_SOURCE = DATA_FILES_SOURCE[stationId];
 
+    // Charger les données existantes
+    let dico = {};
     try {
         if (fs.existsSync(DATA_FILE_SOURCE)) {
             const fileContent = fs.readFileSync(DATA_FILE_SOURCE, 'utf8');
             if (fileContent.trim()) {
                 dico = JSON.parse(fileContent);
-                const lastKey = Object.keys(dico).pop();
-                if (lastKey) {
-                    const lastDate = parseToGMT(lastKey);
-                    // Si les données sont récentes (moins de 36 minutes), elles sont considérées comme à jour
-                    if (maintenant - lastDate < 36 * 60 * 1000) {
-                        fini = true;
-                    } else {
-                        delete dico[lastKey];
-                        let huizero = new Date(maintenant);
-                        huizero.setHours(4, 0, 0, 0);
-                        if (huizero > maintenant) {
-                            huizero = new Date(huizero - (24 * 3600 * 1000));
-                        }
-                        if (lastDate > huizero) {
-                            dateDebut = new Date(lastDate);
-                        } else {
-                            dateDebut = new Date(huizero);
-                            dico = {};
-                        }
-                    }
-                } else {
-                    dateDebut = noexisteouVide(maintenant);
-                }
-            } else {
-                dateDebut = noexisteouVide(maintenant);
             }
-        } else {
-            dateDebut = noexisteouVide(maintenant);
         }
-        BOUCLE = Math.floor((maintenant - dateDebut) / (30 * 60 * 1000)) + 1;
     } catch (error) {
-        console.error('Erreur lors de l\'initialisation du dico :', error.message);
-        throw new Error('Impossible d\'initialiser les données locales.');
+        console.error(`Erreur de lecture du fichier ${DATA_FILE_SOURCE} :`, error.message);
+        dico = {};
     }
-    console.log('retour :', { dico, fini, BOUCLE, dateDebut });
-    return { dico, fini, BOUCLE, dateDebut };
-}
 
-async function updateStationData(stationId) {
-    try {
-        const { dico, fini, BOUCLE, dateDebut } = await initDico(stationId);
-        console.log(`\n=== Mise à jour pour la station ${stationId} ===`);
-        console.log('Début de la mise à jour des données.');
+    console.log(`\n=== Mise à jour pour la station ${stationId} ===`);
 
-        if (fini) {
-            console.log('Les données sont déjà à jour.');
-            console.log('Retour :', { dico, fini, BOUCLE, dateDebut });
-        } else {
-            const dateMF = new Date(dateDebut);
-            const client = new Client(APPLICATION_ID, TOKEN_URL);
+    const creneaux = getCreneauxAttendus(maintenant);
+    // On ne redemande QUE les créneaux absents du dico (ceux déjà présents ne
+    // consomment pas d'appel API et ne sont jamais écrasés). C'est ce qui
+    // permet de "réparer" un trou survenu lors d'un run précédent : le
+    // créneau reste candidat à chaque exécution tant qu'il n'a pas réussi.
+    const creneauxManquants = creneaux.filter(c => !dico[formatToGMTMinus4(c)]);
 
-            for (let i = 0; i < BOUCLE; i++) {
-                const timeChange = 30 * 60 * 1000 * i;
-                const dateMFBoucle = new Date(dateMF.getTime() + timeChange);
-
-                // Alignement des minutes à 00 ou 30
-                if (![0, 30].includes(dateMFBoucle.getMinutes())) {
-                    const delta = dateMFBoucle.getMinutes() < 30 
-                        ? 30 - dateMFBoucle.getMinutes() 
-                        : 60 - dateMFBoucle.getMinutes();
-                    dateMFBoucle.setMinutes(dateMFBoucle.getMinutes() + delta);
+    if (creneauxManquants.length === 0) {
+        console.log('Aucun créneau manquant sur la fenêtre couverte.');
+    } else {
+        const client = new Client(APPLICATION_ID, TOKEN_URL);
+        for (const creneau of creneauxManquants) {
+            const dateMFStr = new Date(creneau).toISOString().split('.')[0] + 'Z';
+            console.log(`Appel à l'API pour la station ${stationId} avec la date : ${dateMFStr}`);
+            try {
+                const response = await client.request(
+                    'GET',
+                    `https://public-api.meteofrance.fr/public/DPObs/v1/station/infrahoraire-6m?id_station=${stationId}&date=${dateMFStr}&format=json`
+                );
+                const data = response[0];
+                if (data && data.validity_time) {
+                    const datage = formatToGMTMinus4(new Date(data.validity_time));
+                    const v_d = data.dd ? `${data.dd.toString().padStart(3, '0')}°` : '000°';
+                    const v_v = (data.ff * 3.6).toFixed(2);
+                    dico[datage] = { v_d, v_v };
+                    console.log(`Données ajoutées pour ${datage}`);
                 }
-                // Génération de l'URL en format ISO limité aux secondes
-                const dateMFStr = new Date(dateMFBoucle.setMilliseconds(0)).toISOString().split('.')[0] + 'Z';
-                console.log(`Appel à l'API pour la station ${stationId} avec la date : ${dateMFStr}`);
-                
-                try {
-                    const response = await client.request(
-                        'GET',
-                        `https://public-api.meteofrance.fr/public/DPObs/v1/station/infrahoraire-6m?id_station=${stationId}&date=${dateMFStr}&format=json`
-                    );
-                    console.log('Réponse de l\'API reçue');
-                    
-                    // Extraction et formatage des données
-                    const data = response[0];
-                    if (data && data.validity_time) {
-                        const datage = formatToGMTMinus4(new Date(data.validity_time));
-                        const v_d = data.dd ? `${data.dd.toString().padStart(3, '0')}°` : '000°';
-                        const v_v = (data.ff * 3.6).toFixed(2);
-                        dico[datage] = { v_d, v_v };
-                        console.log(`Données ajoutées pour ${datage}`);
-                    }
-                } catch (apiError) {
-                    console.error(`Erreur lors de l'appel API pour ${dateMFStr}:`, apiError.message);
-                    // Continue avec les autres dates même en cas d'erreur
-                }
+            } catch (apiError) {
+                console.warn(`Toujours indisponible pour ${dateMFStr} (station ${stationId}) : ${apiError.message}`);
+                // Pas grave : ce créneau sera re-tenté au prochain run tant qu'il manque.
             }
-
-            // Sauvegarde dans le fichier source
-            fs.writeFileSync(DATA_FILES_SOURCE[stationId], JSON.stringify(dico, null, 4));
-            console.log('Données mises à jour dans le fichier source.');
         }
-
-        // Créer le répertoire public/data s'il n'existe pas
-        const outputDir = path.dirname(DATA_FILES_OUTPUT[stationId]);
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-        }
-
-        // Copier vers public/data pour le site statique
-        fs.writeFileSync(DATA_FILES_OUTPUT[stationId], JSON.stringify(dico, null, 4));
-        console.log(`Données sauvegardées dans ${DATA_FILES_OUTPUT[stationId]}`);
-
-        return dico;
-    } catch (error) {
-        console.error(`Erreur lors de la mise à jour de la station ${stationId}:`, error.message);
-        throw error;
     }
+
+    // Tri chronologique avant sauvegarde : essentiel, car un trou peut être
+    // comblé APRÈS coup, dans le désordre d'insertion. Le front (vent.js)
+    // s'appuie sur l'ordre des clés pour déterminer "la plus récente".
+    const sortedDico = {};
+    Object.keys(dico)
+        .sort((a, b) => parseToGMT(a) - parseToGMT(b))
+        .forEach(k => { sortedDico[k] = dico[k]; });
+
+    fs.writeFileSync(DATA_FILE_SOURCE, JSON.stringify(sortedDico, null, 4));
+
+    const outputDir = path.dirname(DATA_FILES_OUTPUT[stationId]);
+    if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+    }
+    fs.writeFileSync(DATA_FILES_OUTPUT[stationId], JSON.stringify(sortedDico, null, 4));
+    console.log(`Données sauvegardées dans ${DATA_FILES_OUTPUT[stationId]}`);
+
+    return sortedDico;
 }
 
 async function build() {
     console.log('=== Début de la génération des données ===\n');
 
     if (!APPLICATION_ID || !TOKEN_URL) {
-        throw new Error('APPLICATION_ID et TOKEN_URL doivent être définis dans le fichier .env');
+        throw new Error('APPLICATION_ID et TOKEN_URL doivent être définis (secrets GitHub Actions ou fichier .env en local).');
     }
 
     const stations = ['97232003', '97230001', '97222002'];
@@ -245,7 +207,6 @@ async function build() {
     console.log('\n=== Génération terminée ===');
 }
 
-// Exécuter le build
 build().catch(error => {
     console.error('Erreur fatale:', error.message);
     process.exit(1);
