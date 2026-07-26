@@ -48,28 +48,25 @@ function formatToGMTMinus4(date) {
     }).format(date);
 }
 
-// Calcule 4h00 (heure LOCALE Martinique, GMT-4) du jour d'observation en
-// cours — de façon indépendante du fuseau horaire de la machine qui exécute
-// ce script (important : les runners GitHub Actions tournent en UTC, pas en
-// GMT-4 ; un simple setHours(4,0,0,0) donnerait minuit local, pas 4h00 local).
+// Calcule 00h00 (minuit, heure LOCALE Martinique, GMT-4) du jour en cours —
+// de façon indépendante du fuseau horaire de la machine qui exécute ce
+// script (important : les runners GitHub Actions tournent en UTC, pas en
+// GMT-4 ; un simple setHours(0,0,0,0) donnerait minuit dans le fuseau du
+// runner, pas minuit local GMT-4).
 function getHuizero(maintenant) {
     const parts = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/Port_of_Spain',
         year: 'numeric', month: '2-digit', day: '2-digit',
-        hourCycle: 'h23', hour: '2-digit',
     }).formatToParts(maintenant).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
 
-    // 4h00 GMT-4 un jour calendaire local donné = 08h00 UTC ce même jour.
-    let huizero = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), 8, 0, 0, 0));
-
-    if (huizero > maintenant) {
-        huizero = new Date(huizero.getTime() - 24 * 3600 * 1000);
-    }
-    return huizero;
+    // 00h00 GMT-4 un jour calendaire local donné = 04h00 UTC ce même jour.
+    // Comme parts.day est déjà déterminé à partir de "maintenant" en local,
+    // ce point est toujours <= maintenant : pas besoin de reculer d'un jour.
+    return new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), 4, 0, 0, 0));
 }
 
-// Liste tous les créneaux de 30 min attendus depuis le début de la "journée
-// d'observation" (4h00 heure locale) jusqu'à maintenant - BUFFER_MIN.
+// Liste tous les créneaux de 30 min attendus depuis le début de la journée
+// (00h00 heure locale) jusqu'à maintenant - BUFFER_MIN.
 function getCreneauxAttendus(maintenant, huizero) {
     const limite = new Date(maintenant.getTime() - BUFFER_MIN * 60 * 1000);
     const creneaux = [];
