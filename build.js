@@ -48,15 +48,29 @@ function formatToGMTMinus4(date) {
     }).format(date);
 }
 
-// Liste tous les créneaux de 30 min attendus depuis le début de la "journée
-// d'observation" (4h00 heure locale) jusqu'à maintenant - BUFFER_MIN.
-function getCreneauxAttendus(maintenant) {
-    let huizero = new Date(maintenant);
-    huizero.setHours(4, 0, 0, 0);
+// Calcule 4h00 (heure LOCALE Martinique, GMT-4) du jour d'observation en
+// cours — de façon indépendante du fuseau horaire de la machine qui exécute
+// ce script (important : les runners GitHub Actions tournent en UTC, pas en
+// GMT-4 ; un simple setHours(4,0,0,0) donnerait minuit local, pas 4h00 local).
+function getHuizero(maintenant) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Port_of_Spain',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hourCycle: 'h23', hour: '2-digit',
+    }).formatToParts(maintenant).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+
+    // 4h00 GMT-4 un jour calendaire local donné = 08h00 UTC ce même jour.
+    let huizero = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), 8, 0, 0, 0));
+
     if (huizero > maintenant) {
         huizero = new Date(huizero.getTime() - 24 * 3600 * 1000);
     }
+    return huizero;
+}
 
+// Liste tous les créneaux de 30 min attendus depuis le début de la "journée
+// d'observation" (4h00 heure locale) jusqu'à maintenant - BUFFER_MIN.
+function getCreneauxAttendus(maintenant, huizero) {
     const limite = new Date(maintenant.getTime() - BUFFER_MIN * 60 * 1000);
     const creneaux = [];
     let cursor = new Date(huizero);
@@ -136,7 +150,24 @@ async function updateStationData(stationId) {
 
     console.log(`\n=== Mise à jour pour la station ${stationId} ===`);
 
-    const creneaux = getCreneauxAttendus(maintenant);
+    const huizero = getHuizero(maintenant);
+
+    // Purge des données d'avant le début de la journée d'observation en cours
+    // (comportement identique à l'appli Heroku : on n'affiche que les
+    // données du jour, la veille ne doit pas trainer dans le dictionnaire).
+    Object.keys(dico).forEach(key => {
+        let date;
+        try {
+            date = parseToGMT(key);
+        } catch (e) {
+            date = null;
+        }
+        if (!date || date < huizero) {
+            delete dico[key];
+        }
+    });
+
+    const creneaux = getCreneauxAttendus(maintenant, huizero);
     // On ne redemande QUE les créneaux absents du dico (ceux déjà présents ne
     // consomment pas d'appel API et ne sont jamais écrasés). C'est ce qui
     // permet de "réparer" un trou survenu lors d'un run précédent : le
