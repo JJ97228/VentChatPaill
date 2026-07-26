@@ -4,9 +4,12 @@ name: Mise à jour données vent + déploiement Pages
 # Il n'a aucune interaction avec le site Heroku de production.
 
 on:
-  schedule:
-    - cron: '7,37 * * * *'   # 7 min après chaque demi-heure : laisse à Météo-France le temps de publier
-  workflow_dispatch: {}       # bouton "Run workflow" manuel pour tester sans attendre le cron
+  # Le "schedule:" interne de GitHub Actions s'est révélé peu fiable en usage
+  # réel (déclenchements irréguliers, retards, sauts complets - documenté par
+  # GitHub comme "best-effort", non garanti). Remplacé par un appel externe
+  # (cron-job.org) qui déclenche ce workflow via l'API GitHub à heure fixe
+  # garantie. Voir README.md pour la configuration.
+  workflow_dispatch: {}       # déclenché par cron-job.org (et testable manuellement)
 
 permissions:
   contents: write
