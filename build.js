@@ -193,37 +193,62 @@ async function updateStationData(stationId) {
         console.log('Aucun créneau manquant sur la fenêtre couverte.');
     } else {
         const client = new Client(APPLICATION_ID, TOKEN_URL);
-        for (const creneau of creneauxManquants) {
-            const dateMFStr = new Date(creneau).toISOString().split('.')[0] + 'Z';
-            console.log(`Appel à l'API pour la station ${stationId} avec la date : ${dateMFStr}`);
+
+        // Une requête, une date précise. Ne lève jamais : renvoie null si
+        // indisponible (erreur API ou réponse vide) plutôt que de propager
+        // l'exception, pour simplifier la boucle appelante.
+        const fetchDonnee = async (date) => {
+            const dateStr = new Date(date).toISOString().split('.')[0] + 'Z';
             try {
                 const response = await client.request(
                     'GET',
-                    `https://public-api.meteofrance.fr/public/DPObs/v1/station/infrahoraire-6m?id_station=${stationId}&date=${dateMFStr}&format=json`
+                    `https://public-api.meteofrance.fr/public/DPObs/v1/station/infrahoraire-6m?id_station=${stationId}&date=${dateStr}&format=json`
                 );
-                const data = response[0];
-                if (data && data.validity_time) {
-                    const datage = formatToGMTMinus4(new Date(data.validity_time));
-                    const estLeCreneauDemande = datage === formatToGMTMinus4(creneau);
-                    const estLeDernierCreneau = dernierCreneauAttendu && creneau.getTime() === dernierCreneauAttendu.getTime();
-
-                    if (estLeCreneauDemande || estLeDernierCreneau) {
-                        // Soit c'est exactement la bonne donnée, soit c'est un
-                        // dépannage provisoire accepté uniquement parce que
-                        // c'est le créneau le plus récent de la fenêtre.
-                        const v_d = data.dd ? `${data.dd.toString().padStart(3, '0')}°` : '000°';
-                        const v_v = (data.ff * 3.6).toFixed(2);
-                        dico[datage] = { v_d, v_v };
-                        console.log(estLeCreneauDemande
-                            ? `Données ajoutées pour ${datage}`
-                            : `Dépannage provisoire ajouté pour ${datage} (créneau ${formatToGMTMinus4(creneau)} pas encore publié)`);
-                    } else {
-                        console.warn(`Donnée hors-grille ignorée pour un créneau ancien (${formatToGMTMinus4(creneau)} -> reçu ${datage}) : nouvel essai au prochain run.`);
-                    }
-                }
+                return (response && response[0]) ? response[0] : null;
             } catch (apiError) {
-                console.warn(`Toujours indisponible pour ${dateMFStr} (station ${stationId}) : ${apiError.message}`);
-                // Pas grave : ce créneau sera re-tenté au prochain run tant qu'il manque.
+                console.warn(`Erreur API pour ${dateStr} (station ${stationId}) : ${apiError.message}`);
+                return null;
+            }
+        };
+
+        const enregistrer = (data, estDepannage, creneauVise) => {
+            const datage = formatToGMTMinus4(new Date(data.validity_time));
+            const v_d = data.dd ? `${data.dd.toString().padStart(3, '0')}°` : '000°';
+            const v_v = (data.ff * 3.6).toFixed(2);
+            dico[datage] = { v_d, v_v };
+            console.log(estDepannage
+                ? `Dépannage provisoire ajouté pour ${datage} (créneau ${formatToGMTMinus4(creneauVise)} pas encore publié)`
+                : `Données ajoutées pour ${datage}`);
+        };
+
+        for (const creneau of creneauxManquants) {
+            const estLeDernierCreneau = dernierCreneauAttendu && creneau.getTime() === dernierCreneauAttendu.getTime();
+
+            console.log(`Appel à l'API pour la station ${stationId} avec la date : ${new Date(creneau).toISOString()}`);
+            const data = await fetchDonnee(creneau);
+
+            if (data && data.validity_time && formatToGMTMinus4(new Date(data.validity_time)) === formatToGMTMinus4(creneau)) {
+                enregistrer(data, false, creneau);
+                continue;
+            }
+
+            console.warn(`Toujours indisponible pour ${formatToGMTMinus4(creneau)} (station ${stationId}).`);
+
+            if (!estLeDernierCreneau) {
+                continue; // Pas de dépannage pour un créneau ancien : nouvel essai au prochain run.
+            }
+
+            // Dépannage (comportement Heroku d'origine) : uniquement pour le
+            // créneau le plus récent. On redescend explicitement par pas de
+            // 6 min (résolution native de l'API) jusqu'à trouver une donnée,
+            // dans la limite de 30 min en arrière.
+            for (let backMin = 6; backMin <= 30; backMin += 6) {
+                const dateSecours = new Date(creneau.getTime() - backMin * 60 * 1000);
+                const dataSecours = await fetchDonnee(dateSecours);
+                if (dataSecours && dataSecours.validity_time) {
+                    enregistrer(dataSecours, true, creneau);
+                    break;
+                }
             }
         }
     }
