@@ -164,12 +164,30 @@ async function updateStationData(stationId) {
         }
     });
 
+    // Dépannage provisoire (comportement Heroku d'origine) : si le créneau le
+    // plus récent (ex. 09h00) n'est pas encore publié, Météo-France renvoie
+    // parfois la dernière donnée 6 min disponible (ex. 08h54) plutôt qu'une
+    // erreur. On l'affiche quand même (mieux que rien), mais elle est
+    // "hors-grille" (pas alignée :00/:30) : on l'efface systématiquement en
+    // tête du run SUIVANT avant de retenter le créneau propre, pour ne pas
+    // laisser trainer 08h54/07h24/etc. indéfiniment dans le tableau.
+    const clesTriees = Object.keys(dico).sort((a, b) => parseToGMT(a) - parseToGMT(b));
+    const derniereCle = clesTriees[clesTriees.length - 1];
+    if (derniereCle) {
+        const d = parseToGMT(derniereCle);
+        if (d.getUTCMinutes() % 30 !== 0 || d.getUTCSeconds() !== 0) {
+            console.log(`Suppression du dépannage provisoire hors-grille : ${derniereCle}`);
+            delete dico[derniereCle];
+        }
+    }
+
     const creneaux = getCreneauxAttendus(maintenant, huizero);
     // On ne redemande QUE les créneaux absents du dico (ceux déjà présents ne
     // consomment pas d'appel API et ne sont jamais écrasés). C'est ce qui
     // permet de "réparer" un trou survenu lors d'un run précédent : le
     // créneau reste candidat à chaque exécution tant qu'il n'a pas réussi.
     const creneauxManquants = creneaux.filter(c => !dico[formatToGMTMinus4(c)]);
+    const dernierCreneauAttendu = creneaux[creneaux.length - 1];
 
     if (creneauxManquants.length === 0) {
         console.log('Aucun créneau manquant sur la fenêtre couverte.');
@@ -186,10 +204,22 @@ async function updateStationData(stationId) {
                 const data = response[0];
                 if (data && data.validity_time) {
                     const datage = formatToGMTMinus4(new Date(data.validity_time));
-                    const v_d = data.dd ? `${data.dd.toString().padStart(3, '0')}°` : '000°';
-                    const v_v = (data.ff * 3.6).toFixed(2);
-                    dico[datage] = { v_d, v_v };
-                    console.log(`Données ajoutées pour ${datage}`);
+                    const estLeCreneauDemande = datage === formatToGMTMinus4(creneau);
+                    const estLeDernierCreneau = dernierCreneauAttendu && creneau.getTime() === dernierCreneauAttendu.getTime();
+
+                    if (estLeCreneauDemande || estLeDernierCreneau) {
+                        // Soit c'est exactement la bonne donnée, soit c'est un
+                        // dépannage provisoire accepté uniquement parce que
+                        // c'est le créneau le plus récent de la fenêtre.
+                        const v_d = data.dd ? `${data.dd.toString().padStart(3, '0')}°` : '000°';
+                        const v_v = (data.ff * 3.6).toFixed(2);
+                        dico[datage] = { v_d, v_v };
+                        console.log(estLeCreneauDemande
+                            ? `Données ajoutées pour ${datage}`
+                            : `Dépannage provisoire ajouté pour ${datage} (créneau ${formatToGMTMinus4(creneau)} pas encore publié)`);
+                    } else {
+                        console.warn(`Donnée hors-grille ignorée pour un créneau ancien (${formatToGMTMinus4(creneau)} -> reçu ${datage}) : nouvel essai au prochain run.`);
+                    }
                 }
             } catch (apiError) {
                 console.warn(`Toujours indisponible pour ${dateMFStr} (station ${stationId}) : ${apiError.message}`);
